@@ -3,6 +3,7 @@ package jpoint2024;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.*;
+import org.apache.kafka.streams.errors.InvalidStateStoreException;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.ValueTransformerWithKey;
 import org.apache.kafka.streams.processor.ProcessorContext;
@@ -13,6 +14,7 @@ import org.apache.kafka.streams.state.Stores;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
@@ -74,7 +76,11 @@ public class Stream {
         topicThreeKTable.transformValues(() -> createStoreProducer(topicStoreNameThree), topicStoreNameThree).toStream().foreach((key, value) -> {});
 
         var topology = builder.build(properties);
+//         custom partition assignor
         kafkaStreams = new KafkaStreams(topology, new CustomStreamsConfig(properties));
+
+        //         default assignor
+//        kafkaStreams = new KafkaStreams(topology, properties);
     }
 
     private static <K, V> ValueTransformerWithKey<K, V, V> createStoreProducer(String storageName) {
@@ -142,5 +148,35 @@ public class Stream {
         metadata.forEach(meta -> meta.activeTasks().forEach(task -> assignedPartitions.addAll(task.topicPartitions())));
 
         logger.info("Assigned partitions: {}", assignedPartitions);
+    }
+
+    public void join() {
+        var stateOne = topicOneStoreRef.get();
+        var stateTwo = topicTwoStoreRef.get();
+        var stateThree = topicThreeStoreRef.get();
+
+        if (stateOne == null || stateTwo == null || stateThree == null) {
+            logger.warn("State is not ready yet");
+            return;
+        }
+
+        try (
+                var stateOneIterator = stateOne.all();
+                var stateTwoIterator = stateTwo.all();
+                var stateThreeIterator = stateThree.all()
+        ) {
+            var mapOne = new HashMap<String, String>();
+            var mapTwo = new HashMap<String, String>();
+            var mapThree = new HashMap<String, String>();
+
+            stateOneIterator.forEachRemaining(record -> mapOne.put(record.key, record.value));
+            stateTwoIterator.forEachRemaining(record -> mapTwo.put(record.key, record.value));
+            stateThreeIterator.forEachRemaining(record -> mapThree.put(record.key, record.value));
+
+            logger.info("\nCurrent state for topic1: {}\nCurrent state for topic2: {}\nCurrent state for topic3: {}", mapOne, mapTwo, mapThree);
+
+        } catch (InvalidStateStoreException e) {
+            logger.warn("State is currently migrating: {}", e.getMessage());
+        }
     }
 }
