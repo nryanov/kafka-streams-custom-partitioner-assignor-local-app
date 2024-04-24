@@ -28,7 +28,7 @@ public class Producer {
 
     public void push() {
         var key = String.valueOf(random.nextInt(10));
-        var value = String.valueOf(random.nextGaussian());
+        var value = "some value";
 
         producer.send(new ProducerRecord<>(topic, key, value));
     }
